@@ -1,7 +1,9 @@
 import re
+import argparse
 from enum import IntEnum, auto
-from typing import List, Tuple, Optional
+from typing import List, Optional
 from dataclasses import dataclass
+import sys
 
 
 class TokenType(IntEnum):
@@ -25,8 +27,8 @@ class TokenType(IntEnum):
     SCAN = auto()
     
     # Logical Operators
-    ANDALSO = auto()
-    ORELSE = auto()
+    AND_ALSO = auto()
+    OR_ELSE = auto()
     NOPE = auto()
     
     # Boolean Constants
@@ -35,22 +37,22 @@ class TokenType(IntEnum):
     NONE = auto()
     
     # Comparison Operators
-    EQ = auto()        # ==
-    NEQ = auto()       # !=
-    LT = auto()        # <
-    GT = auto()        # >
-    LTE = auto()       # <=
-    GTE = auto()       # >=
+    EQ = auto()
+    NEQ = auto()
+    LT = auto()
+    GT = auto()
+    LTE = auto()
+    GTE = auto()
     
     # Arithmetic Operators
-    PLUS = auto()      # +
-    MINUS = auto()     # -
-    MULTIPLY = auto()  # *
-    DIVIDE = auto()    # /
-    MODULO = auto()    # %
+    PLUS = auto()
+    MINUS = auto()
+    MULTIPLY = auto()
+    DIVIDE = auto()
+    MODULO = auto()
     
     # Assignment
-    ASSIGN = auto()    # =
+    ASSIGN = auto()
     
     # Delimiters and Separators
     SEMICOLON = auto()
@@ -62,12 +64,13 @@ class TokenType(IntEnum):
     RBRACE = auto()
     
     # Literals and Identifiers
-    INTCON = auto()    # Integer constant
-    FLOATCON = auto()  # Float constant
-    STRCON = auto()    # String constant
-    ID = auto()        # Identifier
+    NUMBER = auto()
+    STRING = auto()
+    IDENTIFIER = auto()
     
     # Special
+    COMMENT = auto()
+    WHITESPACE = auto()
     EOF = auto()
     ERROR = auto()
 
@@ -79,26 +82,12 @@ class Token:
     lexeme: str
     line: int
     column: int
-    token_number: int
     literal_value: Optional[any] = None
     
-    def to_parser_format(self) -> str:
-        """Format for parser (token stream)"""
-        # For literals, include the value/ID
-        if self.type == TokenType.INTCON:
-            return f"{self.line} {self.type.value} INTCON {self.literal_value}"
-        elif self.type == TokenType.FLOATCON:
-            return f"{self.line} {self.type.value} FLOATCON {self.literal_value}"
-        elif self.type == TokenType.STRCON:
-            return f"{self.line} {self.type.value} STRCON {self.literal_value}"
-        elif self.type == TokenType.ID:
-            return f"{self.line} {self.type.value} ID {self.lexeme}"
-        else:
-            return f"{self.line} {self.type.value} {self.type.name}"
-    
-    def to_debug_format(self) -> str:
-        """Format for debugging display"""
-        return f"Line {self.line} Token #{self.token_number}: {self.lexeme}"
+    def __repr__(self):
+        if self.literal_value is not None:
+            return f"Token({self.type.name}, '{self.lexeme}', {self.line}:{self.column}, value={self.literal_value})"
+        return f"Token({self.type.name}, '{self.lexeme}', {self.line}:{self.column})"
 
 
 class SymbolTable:
@@ -109,7 +98,6 @@ class SymbolTable:
         self._initialize_reserved_words()
     
     def _initialize_reserved_words(self):
-        """Initialize symbol table with all reserved words"""
         reserved = {
             'task': TokenType.TASK,
             'define': TokenType.DEFINE,
@@ -125,8 +113,8 @@ class SymbolTable:
             'grab': TokenType.GRAB,
             'drop': TokenType.DROP,
             'scan': TokenType.SCAN,
-            'andAlso': TokenType.ANDALSO,
-            'orElse': TokenType.ORELSE,
+            'andAlso': TokenType.AND_ALSO,
+            'orElse': TokenType.OR_ELSE,
             'nope': TokenType.NOPE,
             'True': TokenType.TRUE,
             'False': TokenType.FALSE,
@@ -142,11 +130,9 @@ class SymbolTable:
             self.next_id += 1
     
     def lookup(self, lexeme: str) -> Optional[dict]:
-        """Look up a symbol in the table"""
         return self.symbols.get(lexeme)
     
-    def insert(self, lexeme: str, token_type: TokenType = TokenType.ID) -> dict:
-        """Insert a new identifier into the symbol table"""
+    def insert(self, lexeme: str, token_type: TokenType = TokenType.IDENTIFIER) -> dict:
         if lexeme not in self.symbols:
             self.symbols[lexeme] = {
                 'id': self.next_id,
@@ -156,13 +142,12 @@ class SymbolTable:
             self.next_id += 1
         return self.symbols[lexeme]
     
-    def print_table(self):
-        """Print the symbol table in a readable format"""
-        print("\n=== SYMBOL TABLE ===")
-        print(f"{'ID':<5} {'Lexeme':<20} {'Token Type':<20} {'Reserved':<10}")
-        print("-" * 60)
+    def print_table(self, output_stream=sys.stdout):
+        print("\n=== SYMBOL TABLE ===", file=output_stream)
+        print(f"{'ID':<5} {'Lexeme':<20} {'Token Type':<20} {'Reserved':<10}", file=output_stream)
+        print("-" * 60, file=output_stream)
         for lexeme, info in sorted(self.symbols.items(), key=lambda x: x[1]['id']):
-            print(f"{info['id']:<5} {lexeme:<20} {info['token_type'].name:<20} {info['is_reserved']}")
+            print(f"{info['id']:<5} {lexeme:<20} {info['token_type'].name:<20} {info['is_reserved']}", file=output_stream)
 
 
 class LiteralTable:
@@ -172,7 +157,6 @@ class LiteralTable:
         self.next_id = 0
     
     def insert(self, value: any, literal_type: str) -> int:
-        """Insert a literal and return its ID"""
         key = (literal_type, str(value))
         if key not in self.literals:
             self.literals[key] = {
@@ -183,43 +167,28 @@ class LiteralTable:
             self.next_id += 1
         return self.literals[key]['id']
     
-    def print_table(self):
-        """Print the literal table in a readable format"""
-        print("\n=== LITERAL TABLE ===")
-        print(f"{'ID':<5} {'Type':<10} {'Value':<30}")
-        print("-" * 50)
+    def print_table(self, output_stream=sys.stdout):
+        print("\n=== LITERAL TABLE ===", file=output_stream)
+        print(f"{'ID':<5} {'Type':<10} {'Value':<30}", file=output_stream)
+        print("-" * 50, file=output_stream)
         for (lit_type, _), info in sorted(self.literals.items(), key=lambda x: x[1]['id']):
             value_str = repr(info['value'])[:27] + "..." if len(repr(info['value'])) > 30 else repr(info['value'])
-            print(f"{info['id']:<5} {info['type']:<10} {value_str:<30}")
+            print(f"{info['id']:<5} {info['type']:<10} {value_str:<30}", file=output_stream)
 
 
 class Lexer:
     """Lexical analyzer for the cleaning agent language"""
-    
-    # Token patterns (order matters!)
     TOKEN_PATTERNS = [
-        # Comments (must come before operators to catch //)
-        (r'//[^\n]*', 'COMMENT'),
-        
-        # Multi-character operators (must come before single-character ones)
+        (r'//[^\n]*', TokenType.COMMENT),
         (r'==', TokenType.EQ),
         (r'!=', TokenType.NEQ),
         (r'<=', TokenType.LTE),
         (r'>=', TokenType.GTE),
-        
-        # Keywords and identifiers (identifiers must come after keywords)
-        (r'\b(?:andAlso|orElse|nope|True|False|None|task|define|do|until|check|otherwise|return|world|agent|move|turn|grab|drop|scan)\b', 'KEYWORD'),
-        (r'[A-Za-z_][A-Za-z0-9_]*', TokenType.ID),
-        
-        # Numbers (integer or float)
-        (r'\d+\.\d+', TokenType.FLOATCON),  # Float must come before int
-        (r'\d+', TokenType.INTCON),
-        
-        # Strings (double or single quoted)
-        (r'"(?:[^"\\]|\\.)*"', TokenType.STRCON),
-        (r"'(?:[^'\\]|\\.)*'", TokenType.STRCON),
-        
-        # Single-character operators and delimiters
+        (r'\b(?:andAlso|orElse|nope|True|False|None|task|define|do|until|check|otherwise|return|world|agent|move|turn|grab|drop|scan)\b', None),
+        (r'[A-Za-z_][A-Za-z0-9_]*', TokenType.IDENTIFIER),
+        (r'\d+\.?\d*', TokenType.NUMBER),
+        (r'"(?:[^"\\]|\\.)*"', TokenType.STRING),
+        (r"'(?:[^'\\]|\\.)*'", TokenType.STRING),
         (r'<', TokenType.LT),
         (r'>', TokenType.GT),
         (r'\+', TokenType.PLUS),
@@ -235,9 +204,7 @@ class Lexer:
         (r'\)', TokenType.RPAREN),
         (r'\{', TokenType.LBRACE),
         (r'\}', TokenType.RBRACE),
-        
-        # Whitespace (spaces, tabs, newlines)
-        (r'[ \t\n\r]+', 'WHITESPACE'),
+        (r'[ \t\n\r]+', TokenType.WHITESPACE),
     ]
     
     def __init__(self, source_code: str):
@@ -249,16 +216,17 @@ class Lexer:
         self.symbol_table = SymbolTable()
         self.literal_table = LiteralTable()
         self.errors: List[str] = []
-        self.token_counter = 0
     
     def error(self, message: str):
-        """Record an error"""
         error_msg = f"Error at line {self.line}, column {self.column}: {message}"
         self.errors.append(error_msg)
         print(error_msg)
     
+    def peek(self, offset: int = 0) -> Optional[str]:
+        pos = self.position + offset
+        return self.source[pos] if pos < len(self.source) else None
+    
     def advance(self, count: int = 1):
-        """Advance position and update line/column tracking"""
         for _ in range(count):
             if self.position < len(self.source):
                 if self.source[self.position] == '\n':
@@ -268,58 +236,44 @@ class Lexer:
                     self.column += 1
                 self.position += 1
     
-    def match_keyword_or_identifier(self, lexeme: str, line: int, column: int, token_num: int) -> Token:
-        """Determine if a lexeme is a keyword or identifier"""
+    def match_keyword_or_identifier(self, lexeme: str, line: int, column: int) -> Token:
         symbol_info = self.symbol_table.lookup(lexeme)
-        
         if symbol_info and symbol_info['is_reserved']:
-            return Token(symbol_info['token_type'], lexeme, line, column, token_num)
+            return Token(symbol_info['token_type'], lexeme, line, column)
         else:
-            self.symbol_table.insert(lexeme, TokenType.ID)
-            return Token(TokenType.ID, lexeme, line, column, token_num)
+            self.symbol_table.insert(lexeme, TokenType.IDENTIFIER)
+            return Token(TokenType.IDENTIFIER, lexeme, line, column)
     
     def tokenize(self) -> List[Token]:
-        """Tokenize the entire source code"""
         while self.position < len(self.source):
             start_line = self.line
             start_column = self.column
             matched = False
             
-            # Try to match each pattern
             for pattern, token_type in self.TOKEN_PATTERNS:
                 regex = re.compile(pattern)
                 match = regex.match(self.source, self.position)
-                
                 if match:
                     lexeme = match.group(0)
-                    
-                    # Skip whitespace and comments
-                    if token_type == 'WHITESPACE' or token_type == 'COMMENT':
+                    if token_type in [TokenType.WHITESPACE, TokenType.COMMENT]:
                         self.advance(len(lexeme))
                         matched = True
                         break
                     
-                    self.token_counter += 1
-                    
-                    # Special handling for keywords/identifiers
-                    if token_type == 'KEYWORD':
-                        token = self.match_keyword_or_identifier(lexeme, start_line, start_column, self.token_counter)
-                    elif token_type == TokenType.ID:
-                        token = self.match_keyword_or_identifier(lexeme, start_line, start_column, self.token_counter)
-                    elif token_type == TokenType.INTCON:
-                        value = int(lexeme)
-                        literal_id = self.literal_table.insert(value, 'int')
-                        token = Token(token_type, lexeme, start_line, start_column, self.token_counter, value)
-                    elif token_type == TokenType.FLOATCON:
-                        value = float(lexeme)
-                        literal_id = self.literal_table.insert(value, 'float')
-                        token = Token(token_type, lexeme, start_line, start_column, self.token_counter, value)
-                    elif token_type == TokenType.STRCON:
-                        value = lexeme[1:-1]  # Remove quotes
-                        literal_id = self.literal_table.insert(value, 'string')
-                        token = Token(token_type, lexeme, start_line, start_column, self.token_counter, literal_id)
+                    if token_type is None:
+                        token = self.match_keyword_or_identifier(lexeme, start_line, start_column)
+                    elif token_type == TokenType.IDENTIFIER:
+                        token = self.match_keyword_or_identifier(lexeme, start_line, start_column)
+                    elif token_type == TokenType.NUMBER:
+                        value = float(lexeme) if '.' in lexeme else int(lexeme)
+                        self.literal_table.insert(value, 'number')
+                        token = Token(token_type, lexeme, start_line, start_column, value)
+                    elif token_type == TokenType.STRING:
+                        value = lexeme[1:-1]
+                        self.literal_table.insert(value, 'string')
+                        token = Token(token_type, lexeme, start_line, start_column, value)
                     else:
-                        token = Token(token_type, lexeme, start_line, start_column, self.token_counter)
+                        token = Token(token_type, lexeme, start_line, start_column)
                     
                     self.tokens.append(token)
                     self.advance(len(lexeme))
@@ -327,156 +281,69 @@ class Lexer:
                     break
             
             if not matched:
-                char = self.source[self.position] if self.position < len(self.source) else ''
+                char = self.peek()
                 self.error(f"Unexpected character: '{char}'")
-                self.token_counter += 1
-                self.tokens.append(Token(TokenType.ERROR, char, start_line, start_column, self.token_counter))
+                self.tokens.append(Token(TokenType.ERROR, char, start_line, start_column))
                 self.advance()
         
+        self.tokens.append(Token(TokenType.EOF, '', self.line, self.column))
         return self.tokens
     
-    def print_output(self):
-        """Print output in the format shown in the image"""
-        print("\n" + "="*80)
-        print("LEXICAL ANALYSIS OUTPUT")
-        print("="*80)
-        
-        # Create two-column output
-        print(f"\n{'To the Parser (token stream or file)':<45} | {'To the screen (for debugging purposes)'}")
-        print("-"*45 + "+" + "-"*45)
-        
-        for token in self.tokens:
-            parser_output = token.to_parser_format()
-            debug_output = token.to_debug_format()
-            print(f"{parser_output:<45} | {debug_output}")
-    
-    def write_token_file(self, filename: str = "tokens.txt"):
-        """Write tokens to a file for parser input"""
-        with open(filename, 'w') as f:
-            for token in self.tokens:
-                f.write(token.to_parser_format() + '\n')
-        print(f"\n✓ Token stream written to '{filename}'")
+    def print_tokens(self, output_stream=sys.stdout):
+        print("\n=== TOKENS ===", file=output_stream)
+        print(f"{'#':<5} {'Type':<20} {'Lexeme':<25} {'Position':<15} {'Value':<20}", file=output_stream)
+        print("-" * 90, file=output_stream)
+        for i, token in enumerate(self.tokens):
+            lexeme_display = token.lexeme[:22] + "..." if len(token.lexeme) > 25 else token.lexeme
+            position = f"{token.line}:{token.column}"
+            value_str = str(token.literal_value) if token.literal_value is not None else ""
+            print(f"{i:<5} {token.type.name:<20} {lexeme_display:<25} {position:<15} {value_str:<20}", file=output_stream)
 
 
-# Example usage
-if __name__ == "__main__":
-    # Test with a simple example similar to the image
-    test_code = """// Initialize Cleaning World Environment
+def main():
+    parser = argparse.ArgumentParser(description="Lexical Analyzer CLI")
+    parser.add_argument("--input", help="Path to input source file", required=False)
+    parser.add_argument("--output", help="Path to output tokens file", required=False)
+    args = parser.parse_args()
 
-WORLD_SIZE = 5;
-DIRTY = True;
-CLEAN = False;
-STEPS = 0;
+    if not args.input or not args.output:
+        print("Usage: python LexicalAnalysis.py --input file.txt --output tokens.txt")
+        sys.exit(1)
 
-// Represent the grid as a simplified structure
-define initializeWorld:
-{
-  i = 0;
-  do
-    row = i;
-    // Normally would read from file, but here we simulate
-    // Each cell starts as DIRTY
-    markRowAsDirty(row);
-    i = i + 1;
-  until i >= WORLD_SIZE;
-  return;
-}
+    with open(args.input, "r", encoding="utf-8") as f:
+        source_code = f.read()
 
-// Function to clean a specific cell
-define cleanCell:
-{
-  check currentCell == DIRTY:
-  {
-    currentCell = CLEAN;
-    cleanedCount = cleanedCount + 1;
-    log("Cell cleaned!");
-  }
-  otherwise:
-  {
-    log("Cell already clean.");
-  }
-  return;
-}
-
-// Function to move the agent to the next cell
-define moveNext:
-{
-  STEPS = STEPS + 1;
-  currentColumn = currentColumn + 1;
-  check currentColumn >= WORLD_SIZE:
-  {
-    currentColumn = 0;
-    currentRow = currentRow + 1;
-  }
-  return;
-}
-
-// Task to clean the entire world
-task cleanWorld:
-{
-  cleanedCount = 0;
-  currentRow = 0;
-  currentColumn = 0;
-
-  do
-    currentCell = DIRTY;  // simulate reading the cell
-    cleanCell();
-    moveNext();
-  until currentRow >= WORLD_SIZE;
-
-  check cleanedCount > 0:
-  {
-    log("World successfully cleaned!");
-  }
-  otherwise:
-  {
-    log("Nothing to clean.");
-  }
-}
-
-// Function for simple logging (print simulation)
-define log:
-{
-  // In a real system, this might write to file or console
-  return;
-}
-
-// Main entry point
-define main:
-{
-  initializeWorld();
-  cleanWorld();
-  log("Cleaning complete after " + STEPS + " steps.");
-  return;
-}
-
-// Program execution starts here
-main();
-"""
-    
-    print("SOURCE CODE:")
-    print("-" * 40)
-    print(test_code)
-    print("-" * 40)
-    
-    lexer = Lexer(test_code)
+    lexer = Lexer(source_code)
     tokens = lexer.tokenize()
-    
-    # Print output in the required format
-    lexer.print_output()
-    
-    # Optionally write to file
-    lexer.write_token_file()
-    
-    # Print tables
+
+    print("=" * 80)
+    print("LEXICAL ANALYSIS")
+    print("=" * 80)
+
+    # Print everything to terminal
+    lexer.print_tokens()
     lexer.symbol_table.print_table()
     lexer.literal_table.print_table()
-    
+
     if lexer.errors:
         print("\n=== ERRORS ===")
         for error in lexer.errors:
             print(error)
     else:
-        print("\n✓ Lexical analysis completed successfully!")
-    
+        print("\n✓ Lexical analysis completed successfully with no errors!")
+
     print(f"\nTotal tokens: {len(tokens)}")
+    print(f"Total symbols: {len(lexer.symbol_table.symbols)}")
+    print(f"Total literals: {len(lexer.literal_table.literals)}")
+
+    # Now export ONLY tokens section to output file
+    from io import StringIO
+    token_buffer = StringIO()
+    lexer.print_tokens(token_buffer)
+
+    with open(args.output, "w", encoding="utf-8") as f:
+        f.write(token_buffer.getvalue())
+
+
+if __name__ == "__main__":
+    main()

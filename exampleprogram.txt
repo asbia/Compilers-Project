@@ -1,0 +1,91 @@
+// Initialize Cleaning World Environment
+
+WORLD_SIZE = 5;
+DIRTY = True;
+CLEAN = False;
+STEPS = 0;
+
+// Represent the grid as a simplified structure
+define initializeWorld:
+{
+  i = 0;
+  do
+    row = i;
+    // Normally would read from file, but here we simulate
+    // Each cell starts as DIRTY
+    markRowAsDirty(row);
+    i = i + 1;
+  until i >= WORLD_SIZE;
+  return;
+}
+
+// Function to clean a specific cell
+define cleanCell:
+{
+  check currentCell == DIRTY:
+  {
+    currentCell = CLEAN;
+    cleanedCount = cleanedCount + 1;
+    log("Cell cleaned!");
+  }
+  otherwise:
+  {
+    log("Cell already clean.");
+  }
+  return;
+}
+
+// Function to move the agent to the next cell
+define moveNext:
+{
+  STEPS = STEPS + 1;
+  currentColumn = currentColumn + 1;
+  check currentColumn >= WORLD_SIZE:
+  {
+    currentColumn = 0;
+    currentRow = currentRow + 1;
+  }
+  return;
+}
+
+// Task to clean the entire world
+task cleanWorld:
+{
+  cleanedCount = 0;
+  currentRow = 0;
+  currentColumn = 0;
+
+  do
+    currentCell = DIRTY;  // simulate reading the cell
+    cleanCell();
+    moveNext();
+  until currentRow >= WORLD_SIZE;
+
+  check cleanedCount > 0:
+  {
+    log("World successfully cleaned!");
+  }
+  otherwise:
+  {
+    log("Nothing to clean.");
+  }
+}
+
+// Function for simple logging (print simulation)
+define log:
+{
+  // In a real system, this might write to file or console
+  return;
+}
+
+// Main entry point
+define main:
+{
+  initializeWorld();
+  cleanWorld();
+  log("Cleaning complete after " + STEPS + " steps.");
+  return;
+}
+
+// Program execution starts here
+main();
